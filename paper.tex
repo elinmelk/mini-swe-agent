@@ -1,66 +1,56 @@
 % ============================================================
 %  One Shell to Fix Them All: A Minimal LLM-Driven Coding Agent
 %  with Plan–Execute Decomposition for Automated Bug Repair
+%
+%  ACL proceedings format
 % ============================================================
-\documentclass[11pt,a4paper]{article}
+\documentclass[11pt]{article}
 
-% ── Packages ────────────────────────────────────────────────
-\usepackage[margin=1in]{geometry}
+% ACL style (change "review" to "final" for camera-ready)
+\usepackage[review]{acl}
+
+% Standard ACL packages
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{inconsolata}
+\usepackage{graphicx}
+
+% Additional packages for math, algorithms, and code listings
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{booktabs}
-\usepackage{graphicx}
-\usepackage{hyperref}
-\usepackage{xcolor}
-\usepackage{microtype}
-\usepackage{natbib}
-\usepackage{caption}
-\usepackage{subcaption}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage{listings}
 \usepackage{enumitem}
 
-\hypersetup{
-  colorlinks=true,
-  linkcolor=blue!70!black,
-  citecolor=green!60!black,
-  urlcolor=blue!70!black,
-}
-
 \lstset{
   basicstyle=\ttfamily\small,
   breaklines=true,
   frame=single,
-  backgroundcolor=\color{gray!10},
 }
 
-% ── Theorem environments ─────────────────────────────────────
+% Theorem environments
 \newtheorem{definition}{Definition}
 \newtheorem{proposition}{Proposition}
 
 % ============================================================
-\title{%
-  \textbf{One Shell to Fix Them All:}\\
-  A Minimal LLM-Driven Coding Agent\\
-  with Plan–Execute Decomposition\\
-  for Automated Bug Repair
-}
+\title{One Shell to Fix Them All: A Minimal LLM-Driven Coding Agent
+       with Plan--Execute Decomposition for Automated Bug Repair}
 
-\author{%
-  Project~K — Mini Coding Agent\\[4pt]
-  \texttt{mini-swe-agent} / \texttt{projectk} module\\[4pt]
-  \small Built on the SWE-agent / mini-swe-agent framework\\
-  \small Princeton \& Stanford SWE-bench team
-}
+\author{Project K \\
+  \texttt{mini-swe-agent} / \texttt{projectk} module \\
+  Built on the SWE-agent / mini-swe-agent framework \\
+  Princeton \& Stanford SWE-bench team \\
+  \texttt{projectk@example.com}}
 
-\date{May 2026}
 % ============================================================
 
 \begin{document}
 
 \maketitle
-\tableofcontents
-\newpage
 
 % ============================================================
 \begin{abstract}
@@ -88,13 +78,6 @@ describe three concrete engineering lessons drawn from our error analysis.
 All code, configs, fixtures, and \texttt{make} targets are released
 open-source.
 \end{abstract}
-
-\bigskip
-\noindent\textbf{Keywords:} autonomous software engineering; agentic coding;
-plan--execute decomposition; retrieval-augmented generation; open-weight LLMs;
-SWE-bench; automated program repair.
-
-\newpage
 
 % ============================================================
 \section{Introduction}
@@ -140,7 +123,7 @@ Section~\ref{sec:design} describes the system design.
 Section~\ref{sec:setup} details the experimental setup.
 Section~\ref{sec:results} presents results.
 Section~\ref{sec:analysis} provides critical analysis.
-Section~\ref{sec:limits} discusses limitations and future work.
+Section~\ref{sec:future} discusses future work; limitations follow the conclusion.
 Section~\ref{sec:conclusion} concludes.
 
 % ============================================================
@@ -315,7 +298,7 @@ statement.  The relevance score of symbol $v_i$ is:
 
 The top-$k$ symbols by score are surfaced to the agent.  This is a TF-style
 unigram overlap; a BM25 or embedding variant is implemented but disabled by
-default (see Section~\ref{sec:limits}).
+default (see the Limitations section).
 
 \paragraph{Planner–executor (\texttt{planner\_executor}).}
 A two-stage pipeline.  In the first call the \emph{planner} sub-agent
@@ -710,45 +693,10 @@ useful for detecting the structural failure modes
 require manual trajectory inspection.
 
 % ============================================================
-\section{Limitations and Future Work}
-\label{sec:limits}
+\section{Future Work}
+\label{sec:future}
 
-\subsection{Limitations}
-
-\paragraph{Toy scale.}
-All five bugs fit in under 10 lines of code and have one-line fixes.  The
-retrieval finding (33\%$\to$67\%) would benefit from a 20--30 instance
-SWE-Bench-Lite slice.  The infrastructure exists (\texttt{dataset.py} and
-\texttt{cli\_run.py}); full evaluation was not run because each instance
-requires a 1--2\,GB per-repo Docker image.
-
-\paragraph{Single model in the ablation.}
-The ablation grid was run on Qwen2.5-Coder-14B only.  Whether the
-planner-executor advantage holds with a stronger backbone is open: it is
-possible that the 100\% result is partly attributable to the planner
-supplying weak reasoning that a stronger model would perform unaided.
-
-\paragraph{Zero cost data.}
-Ollama, NVIDIA NIM, and Groq are free-tier; LiteLLM's cost calculator has
-no prices for these open-weight models.  All cost metrics are zero by design.
-For paid models (Claude, GPT-4), the same infrastructure would populate
-$\overline{C}$ via Eq.~\eqref{eq:cost}.
-
-\paragraph{Heuristic taxonomy.}
-The 8-bucket taxonomy is a surface-level approximation.  Bucket priorities
-matter: a trajectory that both exceeds budget and looped is labelled
-\texttt{BUDGET\_EXCEEDED}, not \texttt{INFINITE\_LOOP}.  A more principled
-approach would detect loops first and abort early.
-
-\paragraph{Embedding retrieval disabled.}
-The embedding-index path in \texttt{retrieval.py} is implemented but
-disabled by default: it requires a live embedding endpoint.  With a vector
-database and a real benchmark slice, flipping it on is a one-line config
-change.
-
-\subsection{Future Work}
-
-\begin{enumerate}[leftmargin=*, label=\textbf{F\arabic*.}]
+\begin{enumerate}[label=\textbf{F\arabic*.}]
   \item \textbf{Full SWE-Bench-Lite evaluation.}  Run the 20-instance
         selector on Docker-equipped hardware to obtain statistically
         meaningful resolve rates.
@@ -800,143 +748,30 @@ We release all code, fixtures, and evaluation infrastructure to facilitate
 future research.
 
 % ============================================================
-\bibliographystyle{plainnat}
-\begin{thebibliography}{99}
+\section*{Limitations}
 
-\bibitem[Chen et al.(2021)]{chen2021codex}
-Chen, M., Tworek, J., Jun, H., Yuan, Q., Pinto, H.~P. de~O., Kaplan, J.,
-  Edwards, H., Burda, Y., Joseph, N., Brockman, G., et~al.
-\newblock Evaluating large language models trained on code.
-\newblock \emph{arXiv preprint arXiv:2107.03374}, 2021.
+All five bugs fit in under 10 lines of code and have one-line fixes.  The
+retrieval finding (33\%$\to$67\%) would benefit from a 20--30 instance
+SWE-Bench-Lite slice; full evaluation was not run because each instance
+requires a 1--2\,GB per-repo Docker image.  The ablation grid was run on
+Qwen2.5-Coder-14B only; whether the planner-executor advantage holds with a
+stronger backbone is open.  Cost metrics are zero by design (Ollama, NVIDIA
+NIM, and Groq are free-tier).  The 8-bucket failure taxonomy is a
+surface-level heuristic: a trajectory that both exceeds budget and looped is
+labelled \texttt{BUDGET\_EXCEEDED}, not \texttt{INFINITE\_LOOP}.  The
+embedding-index path in \texttt{retrieval.py} is implemented but disabled by
+default because it requires a live embedding endpoint.
 
-\bibitem[Fikes and Nilsson(1971)]{fikes1971strips}
-Fikes, R.~E., and Nilsson, N.~J.
-\newblock STRIPS: A new approach to the application of theorem proving to
-  problem solving.
-\newblock \emph{Artificial Intelligence}, 2(3–4):189–208, 1971.
+% ============================================================
+\section*{Acknowledgments}
 
-\bibitem[Hong et al.(2024)]{hong2024repoagent}
-Hong, J., Ding, Y., Chen, B., Jin, M., Li, Z., Liu, J., Li, J., Chen, L.,
-  and Zheng, Z.
-\newblock RepoAgent: An LLM-powered open-source framework for repository-level
-  code documentation generation.
-\newblock \emph{arXiv preprint arXiv:2402.16667}, 2024.
+This project is built on top of the
+\texttt{mini-swe-agent}~\citep{yang2024sweagent} framework developed by the
+Princeton \& Stanford SWE-bench team.  We thank the SWE-agent community for
+their open-source tooling and the Ollama, Groq, and NVIDIA NIM teams for
+providing free-tier inference endpoints.
 
-\bibitem[Jiang et al.(2018)]{jiang2018simfix}
-Jiang, J., Xiong, Y., Zhang, H., Gao, Q., and Chen, X.
-\newblock Shaping program repair space with existing patches and similar code.
-\newblock In \emph{Proceedings of ISSTA 2018}, pages 298–309, 2018.
-
-\bibitem[Jiang et al.(2021)]{jiang2021cure}
-Jiang, N., Lutellier, T., and Tan, L.
-\newblock CURE: Code-aware neural machine translation for automatic program
-  repair.
-\newblock In \emph{Proceedings of ICSE 2021}, pages 1161–1173, 2021.
-
-\bibitem[Jimenez et al.(2024)]{jimenez2024swebench}
-Jimenez, C.~E., Yang, J., Wettig, A., Yao, S., Pei, K., Press, O., and
-  Narasimhan, K.
-\newblock {SWE}-bench: Can language models resolve real-world GitHub issues?
-\newblock In \emph{International Conference on Learning Representations}, 2024.
-
-\bibitem[Karpukhin et al.(2020)]{karpukhin2020dpr}
-Karpukhin, V., Oguz, B., Min, S., Lewis, P., Wu, L., Edunov, S., Chen, D.,
-  and Yih, W.-t.
-\newblock Dense passage retrieval for open-domain question answering.
-\newblock In \emph{Proceedings of EMNLP 2020}, pages 6769–6781, 2020.
-
-\bibitem[Le Goues et al.(2012)]{le2012genprog}
-Le~Goues, C., Nguyen, T., Forrest, S., and Weimer, W.
-\newblock GenProg: A generic method for automatic software repair.
-\newblock \emph{IEEE Transactions on Software Engineering}, 38(1):54–72, 2012.
-
-\bibitem[Lewis et al.(2020)]{lewis2020rag}
-Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N.,
-  Küttler, H., Lewis, M., Yih, W.-t., Rocktäschel, T., et~al.
-\newblock Retrieval-augmented generation for knowledge-intensive NLP tasks.
-\newblock In \emph{Advances in Neural Information Processing Systems}, 2020.
-
-\bibitem[Li et al.(2022)]{li2022alphacode}
-Li, Y., Choi, D., Chung, J., Kushman, N., Schrittwieser, J., Leblond, R.,
-  Eccles, T., Keeling, J., Gimeno, F., Lago, A.~D., et~al.
-\newblock Competition-level code generation with AlphaCode.
-\newblock \emph{Science}, 378(6624):1092–1097, 2022.
-
-\bibitem[Liu et al.(2023)]{liu2023repobench}
-Liu, T., Xu, C., McAuley, J., and Jain, R.
-\newblock {RepoBench}: Benchmarking repository-level code auto-completion
-  systems.
-\newblock In \emph{International Conference on Learning Representations}, 2024.
-
-\bibitem[Long and Rinard(2016)]{long2016prophet}
-Long, F., and Rinard, M.
-\newblock Automatic patch generation by learning correct code.
-\newblock In \emph{Proceedings of POPL 2016}, pages 298–312, 2016.
-
-\bibitem[Lutellier et al.(2020)]{lutellier2020coconut}
-Lutellier, T., Pham, H.~V., Pang, L., Li, Y., Wei, M., and Tan, L.
-\newblock CoCoNuT: Combining context-aware neural translation models using
-  ensemble for program repair.
-\newblock In \emph{Proceedings of ISSTA 2020}, pages 101–114, 2020.
-
-\bibitem[Packer et al.(2023)]{packer2023memgpt}
-Packer, C., Wooders, S., Lin, K., Fang, V., Patil, S.~G., Stoica, I., and
-  Gonzalez, J.~E.
-\newblock MemGPT: Towards LLMs as operating systems.
-\newblock \emph{arXiv preprint arXiv:2310.08560}, 2023.
-
-\bibitem[Wang et al.(2023)]{wang2023planandexecute}
-Wang, Z., Mao, S., Wu, W., Ge, T., Wei, F., and Ji, H.
-\newblock Unleashing cognitive synergy in large language models: A
-  task-solving agent through multi-persona self-collaboration.
-\newblock \emph{arXiv preprint arXiv:2307.05300}, 2023.
-
-\bibitem[Wang et al.(2024)]{wang2024openhands}
-Wang, X., Li, B., Song, Y., Xu, F.~F., Tang, X., Zhuge, M., Pan, J.,
-  Song, Y., Li, B., Singh, J., et~al.
-\newblock OpenHands: An open platform for AI software developers as generalist
-  agents.
-\newblock \emph{arXiv preprint arXiv:2407.16741}, 2024.
-
-\bibitem[Wei et al.(2022)]{wei2022chainofthought}
-Wei, J., Wang, X., Schuurmans, D., Bosma, M., Chi, E., Le, Q., and Zhou, D.
-\newblock Chain-of-thought prompting elicits reasoning in large language models.
-\newblock In \emph{Advances in Neural Information Processing Systems}, 2022.
-
-\bibitem[Xia and Zhang(2023)]{xia2023chatrepair}
-Xia, C.~S., and Zhang, L.
-\newblock Keep the conversation going: Fixing 162 out of 337 bugs for
-  \$0.42 each using ChatGPT.
-\newblock \emph{arXiv preprint arXiv:2304.00385}, 2023.
-
-\bibitem[Xia et al.(2024)]{xia2024agentless}
-Xia, C.~S., Deng, Y., Dunn, S., and Zhang, L.
-\newblock Agentless: Demystifying LLM-based software engineering agents.
-\newblock \emph{arXiv preprint arXiv:2407.01489}, 2024.
-
-\bibitem[Xiong et al.(2017)]{xiong2017acs}
-Xiong, Y., Wang, J., Yan, R., Zhang, J., Han, S., Huang, G., and Zhang, L.
-\newblock Precise condition synthesis for program repair.
-\newblock In \emph{Proceedings of ICSE 2017}, pages 416–426, 2017.
-
-\bibitem[Yang et al.(2024)]{yang2024sweagent}
-Yang, J., Jimenez, C.~E., Wettig, A., Lieret, K., Yao, S., Narasimhan, K.,
-  and Press, O.
-\newblock {SWE}-agent: Agent-computer interfaces enable automated software
-  engineering.
-\newblock In \emph{The Thirty-eighth Annual Conference on Neural Information
-  Processing Systems}, 2024.
-
-\bibitem[Yao et al.(2023)]{yao2023react}
-Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., and Cao, Y.
-\newblock ReAct: Synergizing reasoning and acting in language models.
-\newblock In \emph{International Conference on Learning Representations}, 2023.
-
-\bibitem[Zhang et al.(2024)]{zhang2024autocoderover}
-Zhang, Y., Ruan, H., Fan, Z., and Roychoudhury, A.
-\newblock AutoCodeRover: Autonomous program improvement.
-\newblock In \emph{Proceedings of ISSTA 2024}, 2024.
-
-\end{thebibliography}
+% ============================================================
+\bibliography{custom}
 
 \end{document}
