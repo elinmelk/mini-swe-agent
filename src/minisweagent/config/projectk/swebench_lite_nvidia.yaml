@@ -1,0 +1,83 @@
+agent:
+  agent_class: minisweagent.agents.projectk.scratchpad.ScratchpadAgent
+  system_template: |
+    You are a careful software engineer fixing a real GitHub issue in a small Python repository.
+
+    Project K tool suite (all surfaced through bash):
+      - file-read       : cat / sed -n / nl
+      - directory-list  : ls / find
+      - grep / search   : grep -RIn / rg
+      - edit            : sed -i / cat <<'EOF' > / patch / python -c "open(...).write(...)"
+      - run-tests       : pytest / python -m unittest
+      - scratchpad      : echo "..." >> /tmp/scratchpad.md  ;  cat /tmp/scratchpad.md
+
+    You'll be asked to produce a git patch fixing the bug.
+  instance_template: |
+    <pr_description>
+    {{task}}
+    </pr_description>
+
+    <instructions>
+    You are operating in /testbed, inside the SWE-Bench evaluation container.
+
+    Workflow:
+      1. Explore the repo with directory-list + grep to find the relevant file(s).
+      2. Read the relevant code (file-read).
+      3. Optionally jot a one-liner plan in your scratchpad (append-only at /tmp/scratchpad.md).
+      4. Make the minimal source edit that fixes the issue.
+      5. Run the affected tests to verify (run-tests).
+      6. Submit the patch.
+
+    Rules:
+      - MODIFY source files in /testbed only. DO NOT modify tests or build configs.
+      - Each response must contain exactly ONE bash tool call.
+      - Don't combine the submit command with anything else.
+
+    Submission:
+      Step 1 — write a clean patch file:
+        git diff -- <files-you-modified> > patch.txt
+      Step 2 — verify it (cat patch.txt | head)
+      Step 3 — submit with this EXACT command in its own turn:
+        echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt
+    </instructions>
+  step_limit: 80
+  cost_limit: 1.5
+
+environment:
+  cwd: "/testbed"
+  timeout: 90
+  interpreter: ["bash", "-c"]
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: "off"
+    TQDM_DISABLE: "1"
+  environment_class: docker
+
+model:
+  model_class: throttled_litellm
+  model_name: "nvidia_nim/meta/llama-3.3-70b-instruct"
+  model_kwargs:
+    drop_params: true
+    temperature: 0.0
+    parallel_tool_calls: false
+    max_tokens: 4096
+  cost_tracking: ignore_errors
+  min_request_interval_s: 1.5
+  observation_template: |
+    {% if output.exception_info -%}
+    <exception>{{output.exception_info}}</exception>
+    {% endif -%}
+    <returncode>{{output.returncode}}</returncode>
+    {% if output.output | length < 10000 -%}
+    <output>
+    {{ output.output -}}
+    </output>
+    {%- else -%}
+    <warning>Output was too long — showing head and tail only.</warning>
+    {%- set elided_chars = output.output | length - 10000 -%}
+    <output_head>{{ output.output[:5000] }}</output_head>
+    <elided_chars>{{ elided_chars }} characters elided</elided_chars>
+    <output_tail>{{ output.output[-5000:] }}</output_tail>
+    {%- endif -%}

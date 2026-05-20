@@ -1,0 +1,7 @@
+instance_id: toy__leap-year
+problem_statement: |
+  `calendar_utils.is_leap_year(year)` returns wrong answers for century years.
+  The Gregorian leap-year rule is: year is a leap year iff (divisible by 4 and
+  not divisible by 100) or (divisible by 400). Fix the implementation so all
+  tests in `tests/test_calendar_utils.py` pass.
+test_command: pytest -q

@@ -1,0 +1,90 @@
+# Stretch goal: repo-level retrieval (symbol graph) — measure impact on success rate.
+#
+# Identical to ollama.yaml except the agent is wrapped in a RetrievalAgent that
+# scans the repo with `SymbolIndex` before the loop starts and injects the
+# top-k symbol hits into the first user message.
+#
+# Run:
+#   projectk-mini -o runs/retrieval -c src/minisweagent/config/projectk/ollama_retrieval.yaml
+
+agent:
+  agent_class: retrieval
+  retrieval_mode: symbol
+  retrieval_top_k: 8
+
+  system_template: |
+    You are a careful software engineer fixing a bug in a small Python repo.
+
+    Issue exactly ONE shell command per response, in a fenced
+    `mswea_bash_command` block.
+
+    A retrieval system has already scanned the repo and surfaced the most
+    relevant symbols. Use them as your starting point — but VERIFY by reading
+    the files yourself before editing.
+
+    Tool suite:
+      - file-read:      cat / sed -n / nl -ba
+      - directory-list: ls / find
+      - grep / search:  grep -RIn
+      - edit:           Python writes only — NEVER use `sed -i` (GNU/BSD differ)
+      - run-tests:      pytest -q
+
+    Editing rule (portability): never use `sed -i`. Use Python:
+
+    ```mswea_bash_command
+    python -c "p='path/to/file.py'; s=open(p).read(); open(p,'w').write(s.replace('OLD','NEW'))"
+    ```
+
+  instance_template: |
+    <task>
+    {{task}}
+    </task>
+
+    {% if retrieved_context %}
+    <retrieval>
+    {{retrieved_context}}
+    </retrieval>
+    {% endif %}
+
+    Working directory: the current cwd holds the buggy repo.
+
+    Workflow:
+      1. Use the retrieval hits above to jump directly to the candidate files.
+      2. Read the relevant file with `cat` to confirm.
+      3. Make the minimal fix with a Python write.
+      4. Run `pytest -q` to verify.
+      5. Once tests pass, submit with this EXACT command on its own turn:
+         git add -A && git diff --cached > /tmp/patch.diff && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.diff
+
+    Format every response as:
+      THOUGHT: <why this command>
+
+      ```mswea_bash_command
+      <one command>
+      ```
+
+    <system_information>
+    {{system}} {{release}} {{machine}}
+    </system_information>
+
+  step_limit: 30
+  cost_limit: 0.0
+
+environment:
+  environment_class: local
+  timeout: 120
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: 'off'
+    TQDM_DISABLE: '1'
+
+model:
+  model_class: litellm_textbased
+  model_name: ollama_chat/qwen2.5-coder:14b
+  model_kwargs:
+    temperature: 0.0
+    max_tokens: 4096
+    api_base: http://localhost:11434
+  cost_tracking: ignore_errors

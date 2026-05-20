@@ -1,0 +1,87 @@
+agent:
+  system_template: |
+    You are a careful software engineer fixing a bug in a small Python repository.
+
+    You operate a Linux shell by issuing exactly ONE command per turn inside a fenced block.
+
+    Tool suite you may use through bash (these are the project-K "tools"):
+      - file-read:      cat / sed -n / nl
+      - directory-list: ls / find
+      - grep / search:  grep -RIn / rg
+      - edit:           sed -i / cat <<'EOF' > / patch / python -c "open(...).write(...)"
+      - run-tests:      pytest / python -m unittest
+
+    All commands go in a fenced block tagged `mswea_bash_command`.
+
+    Tips:
+      - Keep each command focused — you'll see the output and decide next.
+      - Don't combine the submit command with anything else.
+      - Never run interactive editors (vim, nano).
+
+  instance_template: |
+    <task>
+    {{task}}
+    </task>
+
+    <instructions>
+    You are operating in the repository checked out at the current working directory.
+
+    ## Recommended Workflow
+    1. List & read code to find the relevant files (directory-list, file-read, grep).
+    2. Reproduce the issue with a tiny script if useful.
+    3. Edit the source files to fix the bug (keep edits minimal & local).
+    4. Run the tests / your reproducer to verify (run-tests).
+    5. When confident, submit your patch.
+
+    ## Submitting
+
+    When done, produce a clean git patch and finish with EXACTLY:
+    ```mswea_bash_command
+    git add -A && git diff --cached > /tmp/patch.diff && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.diff
+    ```
+
+    ## Formatting
+
+    Every response must contain exactly ONE `mswea_bash_command` block.
+
+    <example_response>
+    THOUGHT: I'll first list the repo to understand its layout.
+
+    ```mswea_bash_command
+    ls -la
+    ```
+    </example_response>
+
+    <system_information>
+    {{system}} {{release}} {{machine}}
+    </system_information>
+    </instructions>
+  step_limit: 60
+  cost_limit: 0.0
+
+environment:
+  environment_class: local
+  timeout: 120
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: 'off'
+    TQDM_DISABLE: '1'
+
+model:
+  model_class: throttled_litellm_textbased
+  # Default to a small free-tier-friendly model. Override on the CLI with -m.
+  # Heavier alternatives (when you have headroom):
+  #   nvidia_nim/meta/llama-3.3-70b-instruct
+  #   nvidia_nim/qwen/qwen3-coder-480b-a35b-instruct
+  model_name: nvidia_nim/meta/llama-3.1-8b-instruct
+  model_kwargs:
+    temperature: 0.0
+    max_tokens: 4096
+    drop_params: true
+  cost_tracking: ignore_errors
+  # NVIDIA NIM free tier shares quota per account, even across multiple keys.
+  # Throttle to ~10 requests/minute by default. Override with -c model.min_request_interval_s=...
+  # or env var MSWEA_MIN_REQUEST_INTERVAL_S.
+  min_request_interval_s: 6.0

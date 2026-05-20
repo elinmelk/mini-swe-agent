@@ -1,0 +1,8 @@
+instance_id: toy__slice-off-by-one
+problem_statement: |
+  `chunker.chunks(items, n)` is supposed to split `items` into consecutive chunks
+  of exactly `n` elements (dropping any leftover tail that is shorter than `n`).
+  Two of the unit tests in `tests/test_chunker.py` are failing because the
+  function returns an extra short chunk at the end. Fix `chunker.py` so all
+  tests pass. Do not modify the tests.
+test_command: pytest -q

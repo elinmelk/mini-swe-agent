@@ -1,0 +1,7 @@
+instance_id: toy__merge-dicts
+problem_statement: |
+  `merge.merge_counts(a, b)` should return a new dict whose keys are the union
+  of `a.keys()` and `b.keys()`, with values summed (treating missing keys as 0).
+  The current implementation drops keys that only appear in `b`. Fix `merge.py`
+  so all tests pass. Do not change the test file.
+test_command: pytest -q

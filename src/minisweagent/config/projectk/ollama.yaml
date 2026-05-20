@@ -1,0 +1,98 @@
+# Ollama backend — open-weight model running locally, no rate limits.
+#
+# Setup (one-time):
+#   brew install ollama
+#   brew services start ollama          # or: ollama serve &
+#   ollama pull qwen2.5-coder:7b        # ~4.5GB
+#
+# Then run:
+#   projectk-mini -o runs/ollama -c src/minisweagent/config/projectk/ollama.yaml
+
+agent:
+  agent_class: minisweagent.agents.projectk.scratchpad.ScratchpadAgent
+  system_template: |
+    You are a careful software engineer fixing a bug in a small Python repository.
+
+    You operate a Linux/macOS shell by issuing exactly ONE command per turn
+    inside a fenced `mswea_bash_command` block.
+
+    Project K tool suite (all surfaced through bash):
+      - file-read:      cat / sed -n '<a>,<b>p' / nl -ba
+      - directory-list: ls / find
+      - grep / search:  grep -RIn
+      - edit:           PREFER python writes (see below). Never use `sed -i`.
+      - run-tests:      pytest -q
+
+    ## Editing rule (critical for portability)
+    Do NOT use `sed -i` — its syntax differs between GNU and BSD/macOS sed and
+    a single failed edit causes infinite retries. Always edit with Python:
+
+    ```mswea_bash_command
+    python -c "p='path/to/file.py'; s=open(p).read(); open(p,'w').write(s.replace('OLD', 'NEW'))"
+    ```
+
+    Or, for a full-file rewrite:
+
+    ```mswea_bash_command
+    cat <<'EOF' > path/to/file.py
+    <full new contents>
+    EOF
+    ```
+
+    ## Loop protection
+    If you've issued the same command twice and the output didn't change,
+    STOP and try a different approach. Don't retry the same command a third
+    time.
+
+  instance_template: |
+    <task>
+    {{task}}
+    </task>
+
+    Working directory: the current cwd holds the buggy repo. Files modified
+    here will be picked up by `pytest -q`.
+
+    Workflow:
+      1. Explore: list + grep to find the buggy code.
+      2. Read the relevant file with `cat`.
+      3. Make the minimal fix with a Python write (see editing rule above).
+      4. Run `pytest -q` to verify.
+      5. Once tests pass, submit with this EXACT command on its own turn:
+         git add -A && git diff --cached > /tmp/patch.diff && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.diff
+
+    Format every response as:
+      THOUGHT: <why>
+
+      ```mswea_bash_command
+      <one command>
+      ```
+
+    <system_information>
+    {{system}} {{release}} {{machine}}
+    </system_information>
+  step_limit: 30
+  cost_limit: 0.0
+
+environment:
+  environment_class: local
+  timeout: 120
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: 'off'
+    TQDM_DISABLE: '1'
+
+model:
+  model_class: litellm_textbased
+  # Open-weight code model that fits on a Mac. Alternatives by size:
+  #   ollama_chat/qwen2.5-coder:7b   — small but tends to loop on errors
+  #   ollama_chat/qwen2.5-coder:14b  — recommended balance of quality + speed
+  #   ollama_chat/qwen2.5-coder:32b  — best quality, ~19GB RAM
+  #   ollama_chat/deepseek-coder-v2:16b
+  model_name: ollama_chat/qwen2.5-coder:14b
+  model_kwargs:
+    temperature: 0.0
+    max_tokens: 4096
+    api_base: http://localhost:11434
+  cost_tracking: ignore_errors

@@ -1,0 +1,8 @@
+instance_id: toy__mutable-default
+problem_statement: |
+  `bag.add_item(item, basket=[])` in `bag.py` uses a mutable default argument,
+  so consecutive calls without an explicit basket share the same list. The
+  failing test `test_independent_baskets` shows the bug. Refactor `add_item` to
+  not share state across calls. Do not change the function signature in a way
+  that breaks existing tests.
+test_command: pytest -q

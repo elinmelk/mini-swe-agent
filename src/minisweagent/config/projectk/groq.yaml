@@ -1,0 +1,80 @@
+# Groq backend — cloud inference of open-weight models (Llama / Qwen /
+# DeepSeek), free tier with 30 RPM. Vastly more generous than NVIDIA NIM free.
+#
+# Setup (one-time):
+#   1. Get a free API key at https://console.groq.com/keys
+#   2. Add it to your global config:
+#        mini-extra config set GROQ_API_KEY gsk_...
+#      or put GROQ_API_KEY='gsk_...' in ~/Library/Application Support/mini-swe-agent/.env
+#
+# Then run:
+#   projectk-mini -o runs/groq -c src/minisweagent/config/projectk/groq.yaml
+
+agent:
+  agent_class: minisweagent.agents.projectk.scratchpad.ScratchpadAgent
+  system_template: |
+    You are a careful software engineer fixing a bug in a small Python repository.
+
+    Issue exactly ONE bash command per response, in a fenced
+    `mswea_bash_command` block.
+
+    Project K tool suite (all surfaced through bash):
+      - file-read:      cat / sed -n / nl
+      - directory-list: ls / find
+      - grep / search:  grep -RIn
+      - edit:           sed -i / cat <<'EOF' > / python -c "open(...).write(...)"
+      - run-tests:      pytest -q
+
+  instance_template: |
+    <task>
+    {{task}}
+    </task>
+
+    Working directory: the current cwd holds the buggy repo.
+
+    Workflow:
+      1. Explore: list + grep to find the bug.
+      2. Read the relevant file.
+      3. Make the minimal fix.
+      4. Run the tests (`pytest -q`).
+      5. Submit with this EXACT command on its own turn:
+         git add -A && git diff --cached > /tmp/patch.diff && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.diff
+
+    Format every response as:
+      THOUGHT: <why>
+
+      ```mswea_bash_command
+      <one command>
+      ```
+
+    <system_information>
+    {{system}} {{release}} {{machine}}
+    </system_information>
+  step_limit: 60
+  cost_limit: 0.0
+
+environment:
+  environment_class: local
+  timeout: 120
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: 'off'
+    TQDM_DISABLE: '1'
+
+model:
+  model_class: throttled_litellm_textbased
+  # Open-weight options available on Groq free tier (pick one):
+  #   groq/llama-3.3-70b-versatile       — general, ~150 tok/s
+  #   groq/qwen-2.5-coder-32b            — code-specialized
+  #   groq/deepseek-r1-distill-llama-70b — reasoning
+  #   groq/llama-3.1-8b-instant          — fast, lower quality
+  model_name: groq/llama-3.3-70b-versatile
+  model_kwargs:
+    temperature: 0.0
+    max_tokens: 4096
+    drop_params: true
+  cost_tracking: ignore_errors
+  # Groq's free RPM is generous, but stay safe with a 2s gap between calls.
+  min_request_interval_s: 2.0

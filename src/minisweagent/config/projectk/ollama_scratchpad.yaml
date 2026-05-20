@@ -1,0 +1,97 @@
+# Stretch goal: persistent scratchpad / memory across steps.
+#
+# The ScratchpadAgent re-reads the contents of a small file at
+# /tmp/scratchpad.md after every step, and appends it to the next observation.
+# The prompt here tells the model to actively maintain that file with
+# hypotheses, files-of-interest, and failed attempts — so memory persists
+# across turns even though each shell command is otherwise stateless.
+#
+# Run:
+#   projectk-mini -o runs/scratch -c src/minisweagent/config/projectk/ollama_scratchpad.yaml
+
+agent:
+  agent_class: scratchpad
+  scratchpad_path: /tmp/scratchpad.md
+
+  system_template: |
+    You are a careful software engineer fixing a bug in a small Python repo.
+
+    You issue exactly ONE shell command per response, inside a fenced
+    `mswea_bash_command` block.
+
+    ## Persistent scratchpad (memory across turns)
+
+    You have a memory file at {{scratchpad_path}}. The current contents of that
+    file are AUTOMATICALLY appended to every observation message you receive,
+    so you never lose track of what you've already learned.
+
+    Make notes by CHAINING a scratchpad append onto your real command using
+    `&&`. Don't waste a whole turn just writing memory. Examples:
+
+    ```mswea_bash_command
+    cat mathy/ops.py && echo "ops.py:1 add() returns a-b (bug)" >> {{scratchpad_path}}
+    ```
+
+    ```mswea_bash_command
+    pytest -q && echo "tests pass" >> {{scratchpad_path}}
+    ```
+
+    Good entries are terse, one short line each (file:line, hypothesis, what
+    worked, what failed). Skip the scratchpad entirely on turns where there's
+    nothing new worth remembering.
+
+    ## Tool suite
+      - file-read:      cat / sed -n / nl -ba
+      - directory-list: ls / find
+      - grep / search:  grep -RIn
+      - edit:           Python writes only — NEVER use `sed -i`
+      - run-tests:      pytest -q
+      - scratchpad:     echo "..." >> {{scratchpad_path}}  (chained with &&)
+
+  instance_template: |
+    <task>
+    {{task}}
+    </task>
+
+    Working directory: the current cwd holds the buggy repo.
+
+    Workflow:
+      1. Explore the repo (and jot any file-of-interest into the scratchpad).
+      2. Read the relevant code; note the bug location into the scratchpad.
+      3. Make the minimal fix with a Python write.
+      4. Run `pytest -q` to verify; record the result into the scratchpad.
+      5. Submit with this EXACT command on its own turn:
+         git add -A && git diff --cached > /tmp/patch.diff && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.diff
+
+    Format every response as:
+      THOUGHT: <why, plus a glance back at your scratchpad>
+
+      ```mswea_bash_command
+      <one command>
+      ```
+
+    <system_information>
+    {{system}} {{release}} {{machine}}
+    </system_information>
+
+  step_limit: 30
+  cost_limit: 0.0
+
+environment:
+  environment_class: local
+  timeout: 120
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: 'off'
+    TQDM_DISABLE: '1'
+
+model:
+  model_class: litellm_textbased
+  model_name: ollama_chat/qwen2.5-coder:14b
+  model_kwargs:
+    temperature: 0.0
+    max_tokens: 4096
+    api_base: http://localhost:11434
+  cost_tracking: ignore_errors

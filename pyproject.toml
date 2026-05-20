@@ -91,6 +91,11 @@ mini = "minisweagent.run.mini:app"
 mini-swe-agent = "minisweagent.run.mini:app"
 mini-extra = "minisweagent.run.utilities.mini_extra:main"
 mini-e= "minisweagent.run.utilities.mini_extra:main"
+projectk-run = "minisweagent.projectk.cli_run:app"
+projectk-report = "minisweagent.projectk.cli_report:app"
+projectk-compare = "minisweagent.projectk.cli_compare:app"
+projectk-mini = "minisweagent.projectk.cli_mini:app"
+projectk-mini-compare = "minisweagent.projectk.cli_mini_compare:app"
 
 [tool.setuptools]
 include-package-data = true
@@ -103,7 +108,7 @@ where = ["src"]
 include = ["minisweagent*"]
 
 [tool.setuptools.package-data]
-minisweagent = ["config/**/*"]
+minisweagent = ["config/**/*", "projectk/minibench/fixtures/**/*"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.

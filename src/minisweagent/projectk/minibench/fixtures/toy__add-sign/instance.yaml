@@ -1,0 +1,6 @@
+instance_id: toy__add-sign
+problem_statement: |
+  The `add` function in `mathy/ops.py` is broken — it subtracts the second
+  argument instead of adding it. Please fix `add` so that `pytest -q` passes.
+  Modify only the source code under `mathy/`, not the tests.
+test_command: pytest -q

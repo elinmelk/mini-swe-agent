@@ -186,3 +186,8 @@ pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python
 
+credentials.py
+.env
+
+# Project K — local run outputs (per-instance trajectories, preds.json, reports)
+runs/

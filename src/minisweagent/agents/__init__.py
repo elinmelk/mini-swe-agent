@@ -8,6 +8,9 @@ from minisweagent import Agent, Environment, Model
 _AGENT_MAPPING = {
     "default": "minisweagent.agents.default.DefaultAgent",
     "interactive": "minisweagent.agents.interactive.InteractiveAgent",
+    "scratchpad": "minisweagent.agents.projectk.scratchpad.ScratchpadAgent",
+    "planner_executor": "minisweagent.agents.projectk.planner_executor.PlannerExecutorAgent",
+    "retrieval": "minisweagent.agents.projectk.retrieval_agent.RetrievalAgent",
 }
 
 

@@ -1,0 +1,86 @@
+# Stretch goal: plan–execute decomposition.
+#
+# The planner role produces a short numbered plan up front (and again every
+# `replan_every` executor steps). The executor follows the plan, issuing one
+# bash command per turn.
+#
+# Run:
+#   projectk-mini -o runs/planner -c src/minisweagent/config/projectk/ollama_planner.yaml
+
+agent:
+  agent_class: planner_executor
+  replan_every: 0  # only generate the plan once up-front for these toy fixtures
+
+  system_template: |
+    You are the EXECUTOR.
+
+    A separate PLANNER role has already produced a numbered plan for solving
+    this task. Follow that plan step by step. Issue exactly ONE shell command
+    per response, inside a fenced `mswea_bash_command` block.
+
+    Project K tool suite (all surfaced through bash):
+      - file-read:      cat / sed -n / nl -ba
+      - directory-list: ls / find
+      - grep / search:  grep -RIn
+      - edit:           PREFER Python writes — NEVER use `sed -i` (BSD vs GNU)
+      - run-tests:      pytest -q
+
+    ## Editing rule (critical for portability)
+    Do not use `sed -i`. Edit files with Python:
+
+    ```mswea_bash_command
+    python -c "p='path/to/file.py'; s=open(p).read(); open(p,'w').write(s.replace('OLD','NEW'))"
+    ```
+
+    ## Loop protection
+    If a command's output doesn't change after retrying once, switch tactic.
+
+  instance_template: |
+    <task>
+    {{task}}
+    </task>
+
+    <plan_from_planner>
+    {{plan}}
+    </plan_from_planner>
+
+    Working directory: the current cwd holds the buggy repo.
+
+    Workflow:
+      1. Execute the plan one step at a time.
+      2. After each command, decide if the current plan step is done.
+      3. Once `pytest -q` passes, submit with this EXACT command on its own turn:
+         git add -A && git diff --cached > /tmp/patch.diff && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.diff
+
+    Format every response as:
+      THOUGHT: <which plan step you're on, and why this command>
+
+      ```mswea_bash_command
+      <one command>
+      ```
+
+    <system_information>
+    {{system}} {{release}} {{machine}}
+    </system_information>
+
+  step_limit: 30
+  cost_limit: 0.0
+
+environment:
+  environment_class: local
+  timeout: 120
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: 'off'
+    TQDM_DISABLE: '1'
+
+model:
+  model_class: litellm_textbased
+  model_name: ollama_chat/qwen2.5-coder:14b
+  model_kwargs:
+    temperature: 0.0
+    max_tokens: 4096
+    api_base: http://localhost:11434
+  cost_tracking: ignore_errors
