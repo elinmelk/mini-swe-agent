@@ -1,6 +1,6 @@
 % ============================================================
 %  One Shell to Fix Them All: A Minimal LLM-Driven Coding Agent
-%  with Plan–Execute Decomposition for Automated Bug Repair
+%  with Plan--Execute Decomposition for Automated Bug Repair
 %
 %  ACL proceedings format
 % ============================================================
@@ -62,9 +62,9 @@ statement and a small repository.  Built as an additive module on top of
 repository using shell idioms familiar to any developer.  We evaluate four
 agent variants---a \emph{baseline} linear-history agent, a
 \emph{scratchpad}-augmented variant, a \emph{symbol-retrieval} variant, and
-a \emph{plan–execute} decomposition---on a hand-curated mini-benchmark of
+a \emph{plan--execute} decomposition---on a hand-curated mini-benchmark of
 five toy Python bugs and a two-model cross-provider experiment.  Our headline
-finding is that plan–execute decomposition triples the resolve rate (33\%
+finding is that plan--execute decomposition triples the resolve rate (33\%
 $\to$ 100\%), reduces mean steps by 3$\times$, input-token consumption by
 5$\times$, and end-to-end latency by 8$\times$ compared with the baseline,
 while requiring no additional model capacity.  Symbol-graph retrieval and
@@ -107,7 +107,7 @@ are:
         custom tool schemas, exploiting the LLM's existing shell fluency.
   \item A \textbf{Docker-free mini-benchmark} of five hand-curated Python
         bugs with a verifiable resolution criterion.
-  \item A \textbf{4-condition ablation} demonstrating that plan–execute
+  \item A \textbf{4-condition ablation} demonstrating that plan--execute
         decomposition dominates all other conditions across resolve rate,
         efficiency, and latency.
   \item An \textbf{8-bucket failure taxonomy} for principled post-hoc
@@ -170,7 +170,7 @@ AutoCodeRover~\citep{zhang2024autocoderover}, Agentless~\citep{xia2024agentless}
 and OpenHands~\citep{wang2024openhands} have pushed the frontier steadily
 upward.
 
-\subsection{Plan–Execute Decomposition}
+\subsection{Plan--Execute Decomposition}
 
 The idea of separating planning from execution has deep roots in classical
 AI~\citep{fikes1971strips}.  In the LLM era, \citet{wei2022chainofthought}
@@ -178,7 +178,7 @@ showed that chain-of-thought prompting elicits multi-step reasoning; ReAct
 \citep{yao2023react} interleaved reasoning traces with tool calls.
 Plan-and-Execute~\citep{wang2023planandexecute} extended this to a two-stage
 pipeline where a planner decomposes a task into subtasks that an executor
-handles sequentially.  Our planner–executor agent applies this idea to the
+handles sequentially.  Our planner--executor agent applies this idea to the
 coding-agent setting, where the planner produces a fixed numbered procedure
 and the executor follows it without replanning.
 
@@ -300,7 +300,7 @@ The top-$k$ symbols by score are surfaced to the agent.  This is a TF-style
 unigram overlap; a BM25 or embedding variant is implemented but disabled by
 default (see the Limitations section).
 
-\paragraph{Planner–executor (\texttt{planner\_executor}).}
+\paragraph{Planner--executor (\texttt{planner\_executor}).}
 A two-stage pipeline.  In the first call the \emph{planner} sub-agent
 receives the problem statement and the retrieval context and produces a
 numbered procedure $\pi = (\pi_1, \ldots, \pi_k)$.  In subsequent calls the
@@ -505,7 +505,7 @@ Retrieval  (C3) & 67\%  & 13.0 & 28\,959 & 1\,112 & 160.6 & 1.8$\times$ fewer in
 \end{table}
 
 \paragraph{Headline result.}
-The planner–executor condition achieves 100\% resolve rate while using
+The planner--executor condition achieves 100\% resolve rate while using
 3$\times$ fewer steps, 5$\times$ fewer input tokens, and 8$\times$ lower
 latency than the baseline.  These ratios are formulated precisely as:
 
@@ -515,7 +515,7 @@ latency than the baseline.  These ratios are formulated precisely as:
   \frac{\overline{L}_{\text{baseline}}}{\overline{L}_{\text{planner}}} &= \frac{331.6}{42.4} \approx 7.8 \label{eq:latency-ratio}
 \end{align}
 
-The planner–executor's token compression follows directly from
+The planner--executor's token compression follows directly from
 Eq.~\eqref{eq:executor-state}: the executor's effective context is bounded by
 the plan length $|\pi^*|$ (typically 6 steps) rather than the full
 conversation, which grows as $O(t \cdot \bar{o})$ where $\bar{o}$ is the mean
@@ -727,7 +727,7 @@ a single Bash tool to autonomously repair Python bugs.  Through a controlled
 4-condition ablation, we showed that:
 
 \begin{itemize}
-  \item \textbf{Plan–execute decomposition} is the most impactful enhancement,
+  \item \textbf{Plan--execute decomposition} is the most impactful enhancement,
         tripling the resolve rate and delivering 5$\times$ token compression
         and 8$\times$ latency reduction over the baseline.
   \item \textbf{Symbol-graph retrieval} doubles the resolve rate with
@@ -742,7 +742,7 @@ a single Bash tool to autonomously repair Python bugs.  Through a controlled
 
 The central message is that agent scaffold complexity does not automatically
 translate to performance: a single Bash tool, a linear message history, and
-a two-stage plan–execute decomposition are sufficient to achieve high resolve
+a two-stage plan--execute decomposition are sufficient to achieve high resolve
 rates on small Python bugs while remaining fully auditable and reproducible.
 We release all code, fixtures, and evaluation infrastructure to facilitate
 future research.
