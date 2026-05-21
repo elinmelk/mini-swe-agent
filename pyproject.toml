@@ -96,6 +96,7 @@ projectk-report = "minisweagent.projectk.cli_report:app"
 projectk-compare = "minisweagent.projectk.cli_compare:app"
 projectk-mini = "minisweagent.projectk.cli_mini:app"
 projectk-mini-compare = "minisweagent.projectk.cli_mini_compare:app"
+projectk-mini-bestofn = "minisweagent.projectk.cli_bestofn:app"
 
 [tool.setuptools]
 include-package-data = true

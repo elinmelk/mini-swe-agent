@@ -1,18 +1,22 @@
 """Repo-level retrieval helpers.
 
-Two indices, both cheap to build for the small SWE-Bench-Lite repos:
+Three indices, all cheap to build for SWE-Bench-Lite-scale repos:
 
-  1. Symbol index — uses Python's `ast` module to enumerate every top-level and
-     class-scope function/method/class. Lookups by name or substring return a
-     ranked list of `(filepath, line, kind, name)` tuples.
+  1. Symbol index — AST-based name/qualname lookup over every function, method,
+     and class. Lookups by name return exact > prefix > substring matches.
 
-  2. Embedding index — embeds the first N characters of every code chunk through
-     LiteLLM (so any provider works) and stores them in a tiny in-memory FAISS-
-     like dict, with cosine similarity ranking. We avoid hard-depending on FAISS
-     so the project still imports on a fresh machine.
+  2. BM25 content index — BM25 scoring over function/class *body text*
+     (signature + docstring + body), so semantic descriptions in the issue
+     ("function that drops keys only present in b") match the right symbol
+     even when the symbol's name isn't in the issue.
 
-Both helpers are intentionally side-effect-free: they return ranked lists, and
-it's the caller's job to format them into a prompt fragment.
+  3. Embedding index — code-chunk vector similarity via litellm.embedding.
+     Disabled by default because it requires a working embedding endpoint.
+
+The hybrid retriever combines (1) and (2) with reciprocal-rank fusion (RRF):
+the final score for a candidate s is sum over queries q of 1/(k + rank_q(s)),
+which weights agreement across retrievers more than the score scale of any
+one retriever.
 """
 
 from __future__ import annotations
@@ -95,6 +99,114 @@ class SymbolIndex:
             if q in s.name.lower() and s not in exact and s not in prefix
         ]
         return (exact + prefix + substring)[:limit]
+
+
+# ---------------------------------------------------------------------------
+# BM25 content index
+# ---------------------------------------------------------------------------
+
+
+_BM25_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]+")
+
+
+def _tokenize_for_bm25(text: str) -> list[str]:
+    """Identifier-aware tokenization, splitting CamelCase and snake_case."""
+    raw = _BM25_TOKEN_RE.findall(text.lower())
+    out: list[str] = []
+    for tok in raw:
+        out.append(tok)
+        # Split snake_case
+        if "_" in tok:
+            out.extend(p for p in tok.split("_") if p)
+    return out
+
+
+@dataclass(frozen=True)
+class BM25Hit:
+    filepath: str
+    line: int
+    qualname: str
+    kind: str  # "function" | "method" | "class"
+    score: float
+
+
+class BM25Index:
+    """BM25 over function / class bodies (signature + docstring + body text).
+
+    Each symbol becomes one document. At query time we tokenize the query the
+    same way and return the top-k scoring symbols.
+    """
+
+    def __init__(self, root: str | Path, *, excludes: tuple[str, ...] = ()):
+        from rank_bm25 import BM25Okapi  # lazy import
+
+        self.root = Path(root).resolve()
+        self._meta: list[dict[str, Any]] = []
+        corpus: list[list[str]] = []
+
+        for path in _iter_python_files(self.root, excludes):
+            try:
+                source = path.read_text(errors="replace")
+                tree = ast.parse(source)
+            except SyntaxError:
+                continue
+            rel = str(path.relative_to(self.root))
+            source_lines = source.splitlines()
+
+            def _collect(node: ast.AST, qual_prefix: str = "") -> None:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    qual = f"{qual_prefix}{node.name}" if not qual_prefix else f"{qual_prefix}.{node.name}"
+                    kind = "class" if isinstance(node, ast.ClassDef) else (
+                        "method" if qual_prefix else "function"
+                    )
+                    end_line = getattr(node, "end_lineno", node.lineno) or node.lineno
+                    body_text = "\n".join(source_lines[node.lineno - 1 : end_line])
+                    self._meta.append({
+                        "filepath": rel, "line": node.lineno,
+                        "qualname": qual, "kind": kind, "body": body_text,
+                    })
+                    corpus.append(_tokenize_for_bm25(body_text))
+                    if isinstance(node, ast.ClassDef):
+                        for child in node.body:
+                            _collect(child, qual_prefix=qual)
+
+            for top in tree.body:
+                _collect(top)
+
+        self._bm25 = BM25Okapi(corpus) if corpus else None
+
+    def search(self, query: str, *, limit: int = 8) -> list[BM25Hit]:
+        if self._bm25 is None:
+            return []
+        q_tokens = _tokenize_for_bm25(query)
+        if not q_tokens:
+            return []
+        scores = self._bm25.get_scores(q_tokens)
+        ranked = sorted(range(len(scores)), key=lambda i: -scores[i])
+        hits: list[BM25Hit] = []
+        for i in ranked[:limit]:
+            if scores[i] <= 0:
+                break
+            m = self._meta[i]
+            hits.append(BM25Hit(
+                filepath=m["filepath"], line=m["line"],
+                qualname=m["qualname"], kind=m["kind"],
+                score=float(scores[i]),
+            ))
+        return hits
+
+
+def reciprocal_rank_fusion(rankings: list[list[tuple[str, int]]], k: int = 60) -> list[tuple[str, float]]:
+    """Combine multiple ranked lists into one ranking via RRF.
+
+    Each ranking is a list of (item_id, rank) tuples (rank starts at 1).
+    The fused score for an item is sum_r 1/(k + rank_r(item)).
+    """
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        for item_id, rank in ranking:
+            scores[item_id] = scores.get(item_id, 0.0) + 1.0 / (k + rank)
+    return sorted(scores.items(), key=lambda x: -x[1])
 
 
 # ---------------------------------------------------------------------------

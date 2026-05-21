@@ -54,7 +54,9 @@ DONE_PLAN
 class PlannerExecutorAgentConfig(AgentConfig):
     planner_prompt_template: str = _DEFAULT_PLANNER_PROMPT
     replan_every: int = 20
-    """Re-run the planner every N executor steps."""
+    """Re-run the planner every N executor steps (set 0 to disable periodic re-planning)."""
+    replan_on_consecutive_failures: int = 0
+    """Trigger an out-of-band re-plan when this many consecutive executor observations have non-zero returncode (set 0 to disable)."""
     planner_model_name: str | None = None
     """Optional override for the planner; defaults to the same model as the executor."""
     observation_window: int = 6
@@ -120,8 +122,45 @@ class PlannerExecutorAgent(DefaultAgent):
         self.make_plan()
         return super().run(task=task, **kwargs)
 
+    def _consecutive_failure_count(self) -> int:
+        """Count consecutive observations with non-zero returncode, looking back from the latest."""
+        import re
+        count = 0
+        for msg in reversed(self.messages):
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content") or ""
+            if "<returncode>" not in content:
+                continue
+            m = re.search(r"<returncode>(-?\d+)</returncode>", content)
+            if not m:
+                break
+            rc = int(m.group(1))
+            if rc == 0:
+                break
+            count += 1
+            if count > 20:
+                break
+        return count
+
     def step(self) -> list[dict]:
+        # Periodic replan
         if self.n_calls and self.config.replan_every > 0 and self.n_calls % self.config.replan_every == 0:
             self.make_plan()
             self.add_messages({"role": "user", "content": f"<updated_plan>\n{self.plan}\n</updated_plan>"})
+        # On-demand replan when the executor keeps failing
+        elif self.config.replan_on_consecutive_failures > 0:
+            failures = self._consecutive_failure_count()
+            if failures >= self.config.replan_on_consecutive_failures:
+                self._planner_logger.info(
+                    f"on-demand replan after {failures} consecutive non-zero returncodes"
+                )
+                self.make_plan()
+                self.add_messages({
+                    "role": "user",
+                    "content": (
+                        f"<updated_plan reason=\"{failures} consecutive failures\">\n"
+                        f"{self.plan}\n</updated_plan>"
+                    ),
+                })
         return super().step()

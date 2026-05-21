@@ -11,6 +11,7 @@ _AGENT_MAPPING = {
     "scratchpad": "minisweagent.agents.projectk.scratchpad.ScratchpadAgent",
     "planner_executor": "minisweagent.agents.projectk.planner_executor.PlannerExecutorAgent",
     "retrieval": "minisweagent.agents.projectk.retrieval_agent.RetrievalAgent",
+    "reflexion": "minisweagent.agents.projectk.reflexion.ReflexionAgent",
 }
 
 

@@ -1,0 +1,86 @@
+# Reflexion retry-on-failure agent. After each attempt the model writes a
+# short self-critique of what went wrong; the critique is injected into the
+# system prompt of the next attempt.
+#
+# Run:
+#   projectk-mini -o runs/reflexion -c src/minisweagent/config/projectk/ollama_reflexion.yaml
+
+agent:
+  agent_class: reflexion
+  max_retries: 2  # 1 attempt + up to 2 retries
+
+  system_template: |
+    You are a careful software engineer fixing a bug in a small Python repo.
+
+    Issue exactly ONE bash command per response, in a fenced
+    `mswea_bash_command` block.
+
+    {% if reflexion_history %}
+    ## Lessons from previous failed attempts
+    Read these CAREFULLY before acting. Do not repeat the listed mistakes.
+
+    {{reflexion_history}}
+    {% endif %}
+
+    ## Tool suite
+      - file-read:      cat / sed -n / nl -ba
+      - directory-list: ls / find
+      - grep / search:  grep -RIn
+      - edit:           Python writes only — NEVER use `sed -i`
+      - run-tests:      pytest -q
+
+    Editing rule: edit files with Python, never `sed -i`:
+
+    ```mswea_bash_command
+    python -c "p='path.py'; s=open(p).read(); open(p,'w').write(s.replace('OLD','NEW'))"
+    ```
+
+    Loop protection: if a command outputs the same error twice, switch tactic.
+
+  instance_template: |
+    <task>
+    {{task}}
+    </task>
+
+    Working dir: the current cwd holds the buggy repo.
+
+    Workflow:
+      1. Explore (ls, grep).
+      2. Read the relevant file.
+      3. Make the minimal fix with a Python write.
+      4. Run pytest -q.
+      5. Submit with this EXACT command on its own turn:
+         git add -A && git diff --cached > /tmp/patch.diff && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/patch.diff
+
+    Format every response as:
+      THOUGHT: <why>
+
+      ```mswea_bash_command
+      <one command>
+      ```
+
+    <system_information>
+    {{system}} {{release}} {{machine}}
+    </system_information>
+
+  step_limit: 30
+  cost_limit: 0.0
+
+environment:
+  environment_class: local
+  timeout: 120
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: 'off'
+    TQDM_DISABLE: '1'
+
+model:
+  model_class: litellm_textbased
+  model_name: ollama_chat/qwen2.5-coder:14b
+  model_kwargs:
+    temperature: 0.0
+    max_tokens: 4096
+    api_base: http://localhost:11434
+  cost_tracking: ignore_errors

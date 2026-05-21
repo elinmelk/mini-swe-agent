@@ -21,7 +21,12 @@ from typing import Literal
 
 from minisweagent import Environment, Model
 from minisweagent.agents.default import AgentConfig, DefaultAgent
-from minisweagent.projectk.retrieval import EmbeddingIndex, SymbolIndex
+from minisweagent.projectk.retrieval import (
+    BM25Index,
+    EmbeddingIndex,
+    SymbolIndex,
+    reciprocal_rank_fusion,
+)
 
 logger = logging.getLogger("agent.retrieval")
 
@@ -111,7 +116,7 @@ def _candidate_identifiers(task: str, limit: int = 16) -> list[str]:
 
 
 class RetrievalAgentConfig(AgentConfig):
-    retrieval_mode: Literal["none", "symbol", "embedding"] = "symbol"
+    retrieval_mode: Literal["none", "symbol", "bm25", "hybrid", "embedding"] = "symbol"
     retrieval_top_k: int = 8
     retrieval_embedding_model: str = "nvidia_nim/nvidia/nv-embedcode-7b-v1"
 
@@ -152,6 +157,63 @@ class RetrievalAgent(DefaultAgent):
         )
         return header + "\n".join(rows)
 
+    def _format_bm25(self, idx: BM25Index, task: str) -> str:
+        hits = idx.search(task, limit=self.config.retrieval_top_k)
+        if not hits:
+            return ""
+        rows = [
+            f"- {h.kind:8s} {h.qualname:30s} {h.filepath}:{h.line}  (bm25={h.score:.2f})"
+            for h in hits
+        ]
+        return f"# BM25 content retrieval (top-{len(rows)})\n" + "\n".join(rows)
+
+    def _format_hybrid(self, root: Path, task: str) -> str:
+        """Symbol exact-match + BM25 body match, fused via reciprocal-rank fusion."""
+        symbol_idx = SymbolIndex(root)
+        bm25_idx = BM25Index(root)
+        keywords = _candidate_identifiers(task)
+
+        # Build ranked lists keyed by "qualname@file:line"
+        sym_ranked: list[tuple[str, int]] = []
+        seen: set[str] = set()
+        for kw in keywords:
+            for sym in symbol_idx.lookup(kw, limit=6):
+                key = f"{sym.qualname}@{sym.filepath}:{sym.line}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                sym_ranked.append((key, len(sym_ranked) + 1))
+
+        bm25_hits = bm25_idx.search(task, limit=10)
+        bm25_ranked = [
+            (f"{h.qualname}@{h.filepath}:{h.line}", i + 1)
+            for i, h in enumerate(bm25_hits)
+        ]
+
+        fused = reciprocal_rank_fusion([sym_ranked, bm25_ranked])
+        if not fused:
+            return ""
+
+        # Decode keys back into rows
+        meta: dict[str, str] = {}
+        for sym in symbol_idx.symbols:
+            meta[f"{sym.qualname}@{sym.filepath}:{sym.line}"] = f"{sym.kind:8s} {sym.qualname:30s} {sym.filepath}:{sym.line}"
+        for h in bm25_hits:
+            meta.setdefault(f"{h.qualname}@{h.filepath}:{h.line}",
+                            f"{h.kind:8s} {h.qualname:30s} {h.filepath}:{h.line}")
+
+        rows: list[str] = []
+        for key, score in fused[: self.config.retrieval_top_k]:
+            if key in meta:
+                rows.append(f"- {meta[key]}  (rrf={score:.3f})")
+        if not rows:
+            return ""
+        return (
+            f"# Hybrid retrieval (top-{len(rows)} after reciprocal-rank fusion;\n"
+            f"#   symbol-index keywords: {', '.join(keywords[:6])}{'…' if len(keywords) > 6 else ''})\n"
+            + "\n".join(rows)
+        )
+
     def _format_embedding(self, idx: EmbeddingIndex, task: str) -> str:
         hits = idx.search(task, limit=self.config.retrieval_top_k)
         if not hits:
@@ -176,6 +238,13 @@ class RetrievalAgent(DefaultAgent):
                 idx = SymbolIndex(root)
                 logger.info(f"retrieval[symbol]: indexed {len(idx.symbols)} symbols under {root}")
                 return self._format_symbols(idx, task)
+            if mode == "bm25":
+                idx = BM25Index(root)
+                logger.info(f"retrieval[bm25]: indexed {len(idx._meta)} bodies under {root}")  # noqa: SLF001
+                return self._format_bm25(idx, task)
+            if mode == "hybrid":
+                logger.info(f"retrieval[hybrid]: building symbol+bm25 indices under {root}")
+                return self._format_hybrid(root, task)
             if mode == "embedding":
                 idx = EmbeddingIndex(root, embedding_model=self.config.retrieval_embedding_model)
                 logger.info(f"retrieval[embedding]: indexed {len(idx.entries)} chunks under {root}")
