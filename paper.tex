@@ -120,6 +120,7 @@ are:
 The remainder of the paper is organised as follows.
 Section~\ref{sec:related} surveys related work.
 Section~\ref{sec:design} describes the system design.
+Section~\ref{sec:goals} maps each project goal to its concrete procedure and algorithms.
 Section~\ref{sec:setup} details the experimental setup.
 Section~\ref{sec:results} presents results.
 Section~\ref{sec:analysis} provides critical analysis.
@@ -395,6 +396,323 @@ Bucket priorities decrease from top to bottom; the first matching condition
 wins.  The taxonomy is evaluated purely on observable signals from the
 trajectory (exit codes, command strings, diff content), requiring no
 ground-truth oracle beyond the binary resolution check.
+
+% ============================================================
+\section{Realising the Goals: Step-by-Step Procedures and Algorithms}
+\label{sec:goals}
+
+This section makes explicit how each of the five project goals is achieved,
+mapping every goal to the concrete numbered procedure and the algorithm that
+implements it in the \texttt{projectk} codebase.
+
+% ------------------------------------------------------------
+\subsection{Goal~1: Designing the Tool Suite}
+\label{sec:goal-tools}
+
+\paragraph{Objective.}
+Expose the five canonical tools (file-read, directory-list, grep/search,
+edit, run-tests) without a custom tool schema.
+
+\begin{enumerate}[leftmargin=*,label=\textbf{Step~\arabic*.}]
+  \item \textbf{Enumerate} the five logical tools required by the task brief.
+  \item \textbf{Map} each tool to one or more portable shell idioms
+        (Table~\ref{tab:tools-full}).  Portability is the governing constraint:
+        every idiom must behave identically on macOS (BSD userland) and Linux
+        (GNU userland) without extra flags.
+  \item \textbf{Inject} the complete mapping into the system prompt so the
+        model knows which idiom to use for each logical operation.
+  \item \textbf{Forbid} \texttt{sed -i} without an explicit backup suffix and
+        mandate the Python one-liner for in-place edits
+        (\texttt{open(p,\!'w').write(\ldots)}), eliminating the BSD/GNU
+        divergence documented in Lesson~1 (Section~\ref{sec:bsd-sed}).
+  \item \textbf{Validate} each idiom runs correctly on the target OS before
+        finalising the prompt template.
+\end{enumerate}
+
+\begin{table}[ht]
+\centering
+\caption{Complete tool--idiom--rationale mapping as enumerated in the system
+         prompt (\texttt{config/projectk/ollama.yaml} and siblings).}
+\label{tab:tools-full}
+\begin{tabular}{p{2.1cm}p{4.2cm}p{4.0cm}}
+\toprule
+\textbf{Tool} & \textbf{Shell idiom(s)} & \textbf{Rationale} \\
+\midrule
+file-read &
+  \texttt{cat f}; \texttt{sed -n 'a,bp' f}; \texttt{nl -ba f} &
+  Line-numbered output enables precise line-targeted edits. \\[4pt]
+directory-list &
+  \texttt{ls -la}; \texttt{find . -name "*.py"} &
+  Tree navigation without a Docker layer. \\[4pt]
+grep / search &
+  \texttt{grep -RIn pat .}; \texttt{rg pat} &
+  Case-insensitive, line-numbered symbol search. \\[4pt]
+edit &
+  \texttt{python -c "open(p,'w').write(...)"} &
+  Single cross-platform idiom; avoids BSD/GNU \texttt{sed} split. \\[4pt]
+run-tests &
+  \texttt{pytest -q}; \texttt{python -m unittest} &
+  Exit code 0 = all green; verifiable resolution criterion. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ------------------------------------------------------------
+\subsection{Goal~2: Implementing the Agent Loop with an Open-Weight LLM}
+\label{sec:goal-loop}
+
+\paragraph{Objective.}
+Build a reliable tool loop driven entirely by open-weight or free-tier
+models, with three additive capability enhancements.
+
+\begin{enumerate}[leftmargin=*,label=\textbf{Step~\arabic*.}]
+  \item \textbf{Select backend}: Qwen2.5-Coder-14B via Ollama for the primary
+        ablation (local, zero rate limits); Groq Llama-3.3-70B and NVIDIA NIM
+        Llama-3.1-8B as secondary free-tier targets.
+  \item \textbf{Implement} the baseline \texttt{DefaultAgent} loop
+        (Algorithm~\ref{alg:loop}).  The loop maintains a linear message
+        history $H$ and issues bash commands until the model emits
+        \texttt{<submit>} or the step budget $B$ is exhausted.
+  \item \textbf{Extend} the loop with \texttt{ScratchpadAgent}
+        (Algorithm~\ref{alg:scratchpad}): append the contents of a
+        persistent \texttt{/tmp/scratchpad.md} to every observation so the
+        model can accumulate durable hypotheses across steps.
+  \item \textbf{Extend} the loop with \texttt{RetrievalAgent}
+        (Algorithm~\ref{alg:retrieval}): build a symbol index from the
+        repository's Python ASTs, rank symbols against the task keywords
+        using Eq.~\eqref{eq:retrieval-score}, and inject the top-$k$ hits
+        into the first user message.
+  \item \textbf{Extend} the loop with \texttt{PlannerExecutorAgent}
+        (Algorithm~\ref{alg:planner}): invoke the model once as a
+        \emph{planner} to produce a fixed $\leq 6$-step procedure, then
+        run the standard executor loop with the plan visible in the context.
+  \item \textbf{Test} each variant against all five fixtures;
+        record trajectories as \texttt{*.traj.json} for post-hoc analysis.
+\end{enumerate}
+
+\begin{algorithm}[ht]
+\caption{Scratchpad agent (\texttt{ScratchpadAgent})}
+\label{alg:scratchpad}
+\begin{algorithmic}[1]
+\Require same inputs as Algorithm~\ref{alg:loop}; scratchpad path $\sigma$
+\State $\sigma \gets \texttt{/tmp/scratchpad.md}$; ensure file exists
+\For{$t = 1, \dots, B$}
+  \State $a_t \gets \mathcal{M}(H)$
+  \If{$a_t = \texttt{<submit>}$} \Return $\hat{\delta} \gets \texttt{git diff HEAD}$ \EndIf
+  \State $o_t \gets \texttt{subprocess.run}(a_t)$
+  \State $s_t \gets \texttt{tail\_chars}(\sigma,\; 2000)$
+        \Comment{read last 2000 chars of scratchpad}
+  \State $H \gets H \oplus \bigl[(a_t,\; o_t \,\Vert\,
+        \langle\!\texttt{scratchpad}\!\rangle\, s_t\,
+        \langle\!/\!\texttt{scratchpad}\!\rangle)\bigr]$
+\EndFor
+\State \Return \textbf{failure}(\texttt{LimitsExceeded})
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[ht]
+\caption{Retrieval agent (\texttt{RetrievalAgent})}
+\label{alg:retrieval}
+\begin{algorithmic}[1]
+\Require task $p$, repo root $r$, top-$k$ limit $k$
+\State $V \gets \texttt{SymbolIndex}(r)$
+      \Comment{walk \texttt{*.py} files; parse with \texttt{ast}}
+\State $Q \gets \texttt{CandidateIdentifiers}(p)$
+      \Comment{backtick tokens first, then \texttt{snake\_Case} identifiers}
+\For{each $q_j \in Q$}
+  \State score each $v_i \in V$ by Eq.~\eqref{eq:retrieval-score}
+\EndFor
+\State $\text{ctx} \gets$ format top-$k$ symbols as \texttt{<retrieval>} block
+\State $H_1 \gets [\text{system prompt}(p, r),\;
+      \langle\!\texttt{retrieval}\!\rangle\,\text{ctx}\,
+      \langle\!/\!\texttt{retrieval}\!\rangle]$
+\State \textbf{run} \texttt{DefaultAgent} loop with initial history $H_1$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[ht]
+\caption{Planner--executor agent (\texttt{PlannerExecutorAgent})}
+\label{alg:planner}
+\begin{algorithmic}[1]
+\Require task $p$, repo $r$, budget $B$, model $\mathcal{M}$, replan interval $R$
+\State $\pi^* \gets \textsc{Planner}(\mathcal{M},\, p)$
+      \Comment{one LLM call; outputs $\leq 6$ numbered steps, ends \texttt{DONE\_PLAN}}
+\State $H \gets [\text{system}(p, r),\;
+      \langle\!\texttt{plan}\!\rangle\,\pi^*\,\langle\!/\!\texttt{plan}\!\rangle]$
+\For{$t = 1, \dots, B$}
+  \If{$t > 1 \;\wedge\; (t \bmod R) = 0$}
+    \Comment{periodic replan with recent observations}
+    \State $\pi^* \gets \textsc{Planner}(\mathcal{M},\, p,\,
+          H_{t-R:t})$
+    \State $H \gets H \oplus
+          [\langle\!\texttt{updated\_plan}\!\rangle\,\pi^*\,
+           \langle\!/\!\texttt{updated\_plan}\!\rangle]$
+  \EndIf
+  \State $a_t \gets \mathcal{M}(H)$
+        \Comment{executor issues one bash command per plan step}
+  \If{$a_t = \texttt{<submit>}$} \Return $\hat{\delta}$ \EndIf
+  \State $o_t \gets \texttt{subprocess.run}(a_t)$
+  \State $H \gets H \oplus [(a_t,\; o_t)]$
+\EndFor
+\State \Return \textbf{failure}(\texttt{LimitsExceeded})
+\end{algorithmic}
+\end{algorithm}
+
+% ------------------------------------------------------------
+\subsection{Goal~3: Selecting and Curating the Benchmark}
+\label{sec:goal-bench}
+
+\paragraph{Objective.}
+Obtain 20--30 representative issues that can be evaluated fully locally,
+without per-instance Docker images.
+
+\begin{enumerate}[leftmargin=*,label=\textbf{Step~\arabic*.}]
+  \item \textbf{Survey} SWE-Bench-Lite for the most common one-file,
+        one-function bug classes: sign errors, off-by-one indices, wrong
+        boolean conditions, mutable default arguments, and incorrect
+        container-iteration patterns.
+  \item \textbf{Hand-write} one minimal fixture per class ($\leq 10$ LoC,
+        one-line fix) to allow rapid iteration without Docker images and
+        without network access.
+  \item \textbf{Format} each fixture as two artefacts: (a)
+        \texttt{instance.yaml} containing \texttt{instance\_id},
+        \texttt{problem\_statement}, \texttt{test\_command}, and optional
+        \texttt{setup\_commands}; (b) a \texttt{repo/} subtree with the
+        buggy Python source.
+  \item \textbf{Verify} every fixture starts \texttt{pytest -q} \emph{red}
+        on a pristine copy to confirm the bug is genuinely present.
+  \item \textbf{Materialise} and \textbf{run} each fixture using
+        Algorithm~\ref{alg:bench}: copy into an isolated tmpdir, initialise a
+        git baseline, run the agent, then verify resolution on a second fresh
+        checkout.
+\end{enumerate}
+
+\begin{algorithm}[ht]
+\caption{Fixture materialisation and resolution check
+         (\texttt{minibench/runner.py::run\_instance})}
+\label{alg:bench}
+\begin{algorithmic}[1]
+\Require fixture $f$, agent config $\kappa$, output dir $D$
+\State $w \gets \texttt{mkdtemp}()$;
+       \texttt{copytree}$(f.\textit{repo},\, w)$
+\State \texttt{git init} $w$;
+       \texttt{git commit} \textquotedbl{}initial\textquotedbl{}
+       \Comment{establishes clean HEAD for \texttt{git diff}}
+\State \textbf{assert} $\texttt{pytest}(w) \neq 0$
+       \Comment{fixture must be red before agent runs}
+\State $\tau,\,\hat{\delta} \gets \textsc{RunAgent}(\kappa,\, w,\,
+       f.\textit{problem\_statement})$
+\State $w' \gets \texttt{mkdtemp}()$;
+       \texttt{copytree}$(f.\textit{repo},\, w')$
+       \Comment{second independent checkout}
+\If{$\texttt{git apply}(\hat{\delta},\, w') = 0$}
+       \Comment{patch applies cleanly}
+  \State $\text{resolved} \gets
+         \bigl(\texttt{pytest}(w') = 0\bigr)$
+\Else
+  \State $\text{resolved} \gets \textbf{false}$
+\EndIf
+\State \textbf{write} $\tau$, $\hat{\delta}$, $\text{resolved}$
+       to $D/f.\textit{instance\_id}/$ and $D/\texttt{preds.json}$
+\end{algorithmic}
+\end{algorithm}
+
+% ------------------------------------------------------------
+\subsection{Goal~4: Evaluating Resolve Rate, Tool Calls, and Token/Latency Cost}
+\label{sec:goal-eval}
+
+\paragraph{Objective.}
+Compute the four scalar metrics defined in Section~\ref{sec:metrics} for
+every (agent variant, fixture) pair and aggregate across instances.
+
+\begin{enumerate}[leftmargin=*,label=\textbf{Step~\arabic*.}]
+  \item \textbf{Collect} the \texttt{*.traj.json} file written by the agent
+        for each run; also read \texttt{preds.json} (model patches) and,
+        when available, the SWE-Bench evaluator's \texttt{report.json}.
+  \item \textbf{Determine resolution}: apply the double-checkout criterion
+        Eq.~\eqref{eq:resolution}, implemented in
+        \texttt{runner.py::run\_instance}.
+  \item \textbf{Count tool calls}: read
+        \texttt{traj.info.model\_stats.api\_calls} (integer).
+  \item \textbf{Count tokens}: accumulate
+        \texttt{message.extra.response.usage.prompt\_tokens} and
+        \texttt{completion\_tokens} across all assistant messages.
+  \item \textbf{Measure latency}: compute
+        $L_i = \max_t(\texttt{timestamp}_t) -
+               \min_t(\texttt{timestamp}_t)$
+        from per-message \texttt{extra.timestamp} fields.
+  \item \textbf{Compute cost}: apply Eq.~\eqref{eq:cost} with the
+        per-provider token prices $\rho_{\text{in}},\rho_{\text{out}}$;
+        set $\rho = 0$ for local Ollama runs.
+  \item \textbf{Aggregate}: compute
+        $\overline{T}$ (Eq.~\eqref{eq:mean-steps}),
+        $\eta_{\text{in}}$ (Eq.~\eqref{eq:token-efficiency}),
+        $\overline{L}$ (Eq.~\eqref{eq:latency}), and
+        $\text{RR}$ (Eq.~\eqref{eq:resolve-rate}) over all $N$ instances.
+\end{enumerate}
+
+Steps 1--7 are implemented in
+\texttt{projectk/metrics.py::compute\_metrics}, which walks an output
+directory and returns a \texttt{Metrics} dataclass.  The harness writes a
+\texttt{report.json} and a \texttt{results.csv} after every ablation run
+via \texttt{make ablation}.
+
+% ------------------------------------------------------------
+\subsection{Goal~5: Failure Analysis}
+\label{sec:goal-failure}
+
+\paragraph{Objective.}
+Give every unresolved instance a principled label from the failure modes
+specified in the brief: wrong file edited, wrong edit, broken tests,
+exceeded budget, and infinite loop.
+
+\begin{enumerate}[leftmargin=*,label=\textbf{Step~\arabic*.}]
+  \item \textbf{Identify} unresolved instances: all $(f, \kappa)$ pairs
+        where $\mathbf{1}_i = 0$ after the double-checkout check.
+  \item \textbf{Extract} observable signals from each trajectory $\tau$:
+        exit status, ordered command list $A$, submission patch $\hat{\delta}$,
+        and return codes of every \texttt{pytest}/\texttt{unittest}
+        invocation.
+  \item \textbf{Apply} the priority function $\phi(\tau)$
+        (Algorithm~\ref{alg:failure}) top-to-bottom; assign the first
+        matching bucket label.
+  \item \textbf{Aggregate} bucket counts across all instances and write a
+        \texttt{failure\_report.json} to the output directory.
+\end{enumerate}
+
+\begin{algorithm}[ht]
+\caption{Failure classification $\phi(\tau)$
+         (\texttt{projectk/failure\_analysis.py::classify\_trajectory})}
+\label{alg:failure}
+\begin{algorithmic}[1]
+\Require trajectory $\tau$, submission $\hat{\delta}$, resolved flag $r$
+\If{$r$} \Return \texttt{RESOLVED} \EndIf
+\If{$\tau.\textit{exit\_status} = \texttt{LimitsExceeded}$}
+  \Return \texttt{BUDGET\_EXCEEDED}
+\EndIf
+\If{$\tau.\textit{exit\_status} \notin
+  \{\texttt{Submitted},\,\texttt{Exit},\,\texttt{""}\}$}
+  \Return \texttt{CRASH}
+\EndIf
+\State $A \gets [a_1, a_2, \ldots]$
+      \Comment{ordered bash command list from \texttt{messages[*].extra.actions}}
+\If{$\exists\, i : |\{A_i, A_{i+1},\ldots,A_{i+4}\}| = 1$}
+  \Return \texttt{INFINITE\_LOOP}
+  \Comment{$\geq 5$ identical consecutive commands}
+\EndIf
+\If{$|\hat{\delta}| = 0$}
+  \Return \texttt{NO\_PATCH}
+\EndIf
+\If{every file in $\hat{\delta}$ matches \texttt{tests?/|conftest|setup|pyproject}}
+  \Return \texttt{WRONG\_FILE\_EDITED}
+\EndIf
+\State $C \gets $ return codes of last 3 test invocations in $\tau$
+\If{$|C| > 0 \;\wedge\; \forall c \in C : c \neq 0$}
+  \Return \texttt{TESTS\_BROKEN}
+\EndIf
+\Return \texttt{PROBABLY\_WRONG\_EDIT}
+\end{algorithmic}
+\end{algorithm}
 
 % ============================================================
 \section{Experimental Setup}
