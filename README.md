@@ -1,4 +1,4 @@
-# Project K — Mini Coding Agent (SWE-Bench-Lite style)
+# Mini Coding Agent (SWE-Bench-Lite style)
 
 A small agentic coder that, given a GitHub-issue-style bug description and a
 Python repository, produces a patch that fixes the bug. The agent operates in
