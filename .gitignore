@@ -191,3 +191,4 @@ credentials.py
 
 # Project K — local run outputs (per-instance trajectories, preds.json, reports)
 runs/
+.DS_Store
